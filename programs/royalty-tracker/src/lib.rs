@@ -21,12 +21,13 @@ pub mod royalty_tracker {
         Ok(())
     }
 
+    // TODO change the pubkey type to signature
     pub fn pay_royalty(
         ctx: Context<PayRoyalty>,
         traded_price: u64,
         royalty_percent_paid: u16,
-        // listing_sig: Pubkey,
-        // payment_sig: Pubkey,
+        listing_sig: Pubkey,
+        payment_sig: Pubkey,
     ) -> Result<()> {
         let bps = ctx.accounts.nft_metadata.data.seller_fee_basis_points;
 
@@ -44,19 +45,26 @@ pub mod royalty_tracker {
 
         msg!("creator vector? {:?}", &creators);
 
-        for creator in &mut creators {
+        // TODO get right indexes and stuff for creator vector, types for the bps calculations
+
+        for i in 1..creators.len() {
+            let share = ctx.accounts.nft_metadata.data.creators[i].share;
+
             let cpi_accounts = Transfer {
                 from: ctx.accounts.signer.to_account_info(),
-                to: creator.to_account_info(),
+                to: creators[i].to_account_info(),
                 authority: ctx.accounts.signer.to_account_info(),
             };
             let cpi_program = ctx.accounts.token_program.to_account_info();
             let cpi_context = CpiContext::new(cpi_program, cpi_accounts);
-            token::transfer(cpi_context, bps_left_to_pay as u64)?;
+            token::transfer(
+                cpi_context,
+                traded_price * bps_left_to_pay * share / (100 * 100),
+            )?;
         }
 
-        // ctx.accounts.receipt.listing_sig = listing_sig;
-        // ctx.accounts.receipt.payment_sig = payment_sig;
+        ctx.accounts.receipt.listing_sig = listing_sig;
+        ctx.accounts.receipt.payment_sig = payment_sig;
         Ok(())
     }
 }
@@ -79,8 +87,8 @@ pub struct CreateReceipt<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(traded_price: u64, royalty_percent_paid: u16)]
-// , listing_sig: Pubkey, payment_sig: Pubkey
+#[instruction(traded_price: u64, royalty_percent_paid: u16, listing_sig: Pubkey, payment_sig: Pubkey
+)]
 pub struct PayRoyalty<'info> {
     #[account(mut,
               seeds = [b"seeds", nft_mint.key().as_ref()], bump,

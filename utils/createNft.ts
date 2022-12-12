@@ -145,31 +145,44 @@ export async function mintNFTs(
   owners: PublicKey[]
 ): Promise<Nft[]> {
   async function mintSingleNft(uri: string, ownerKey: PublicKey): Promise<Nft> {
-    const { nft } = await metaplex.nfts().create({
-      uri: "https://arweave.net/123",
-      name: "My NFT",
-      sellerFeeBasisPoints: 500, // Represents 5.00%.
-    });
-
-    // let { nft } = await metaplex.nfts().create({
-    //   uri: uri,
-    //   mintAuthority: otherCreator, // other creator[i] created all of collection i
-    //   updateAuthority: otherCreator,
-    //   owner: ownerKey, // users alternate ownership of nfts,
-    //   payer: otherCreator,
-    //   creators: [
-    //     {
-    //       address: otherCreator.publicKey,
-    //       share: 50,
-    //       verified: true,
-    //     },
-    //     {
-    //       address: creator.publicKey,
-    //       share: 50,
-    //       verified: false,
-    //     },
-    //   ],
+    // const { nft } = await metaplex.nfts().create({
+    //   uri: "https://arweave.net/123",
+    //   name: "My NF",
+    //   sellerFeeBasisPoints: 500, // Represents 5.00%.
     // });
+    //
+
+    console.log("uri", uri);
+
+    fetch(uri)
+      .then((response) => response.json())
+      .then((data) => {
+        console.log("Arweave network height is: " + data.height);
+      })
+      .catch((error) => {
+        console.error(error);
+      });
+    let { nft } = await metaplex.nfts().create({
+      uri: uri,
+      name: "My NF",
+      sellerFeeBasisPoints: 500, // Represents 5.00%.
+      // mintAuthority: otherCreator, // other creator[i] created all of collection i
+      // updateAuthority: otherCreator,
+      // owner: ownerKey, // users alternate ownership of nfts,
+      // payer: otherCreator,
+      creators: [
+        {
+          address: otherCreator.publicKey,
+          share: 50,
+          verified: true,
+        },
+        {
+          address: creator.publicKey,
+          share: 50,
+          verified: false,
+        },
+      ],
+    });
 
     const METADATA_PROGRAM_PUBKEY = new PublicKey(
       "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
@@ -179,7 +192,7 @@ export async function mintNFTs(
       [
         Buffer.from("metadata"),
         METADATA_PROGRAM_PUBKEY.toBuffer(),
-        nft.mint.toBuffer(),
+        nft.mint.address.toBuffer(),
       ],
       METADATA_PROGRAM_PUBKEY
     );
@@ -196,11 +209,17 @@ export async function mintNFTs(
     return nft;
   }
 
+  console.log("in function before promises");
+
   let nftPromises: Promise<Nft>[] = [];
   for (let i = 0; i < uriData.length; i++) {
     let uri = uriData[i];
+    console.log("before ", i);
     nftPromises.push(mintSingleNft(uri, owners[i % owners.length]));
+    console.log("after ", i);
   }
+
+  console.log("after loop");
 
   let nftResults = await Promise.all(nftPromises);
 
