@@ -40,3 +40,13 @@ then see if test code runs
 then calcualte right bps
 
 made system to quickly get all the nfts that are paid for
+
+
+
+Do we need init_if_needed
+store the rest of info (traded price, percent paid etc)
+
+change percent paid to amount paid (more truthful if percent paid changes)
+TODO way to differentiate all the receipts
+
+can do something like

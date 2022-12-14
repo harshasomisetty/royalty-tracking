@@ -4,6 +4,9 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{self, Mint, Token, TokenAccount, Transfer},
 };
+use solana_program::{
+    account_info::AccountInfo, program::invoke, program::invoke_signed, system_instruction,
+};
 
 pub mod state;
 
@@ -17,7 +20,19 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 pub mod royalty_tracker {
     use super::*;
 
+    /* Initializes the receipt in seperate transaction to allow for future updates and payments. */
     pub fn create_receipt(ctx: Context<CreateReceipt>) -> Result<()> {
+        Ok(())
+    }
+
+    /* Writes the latest royalty payment details to the receipt */
+    pub fn update_receipt(
+        ctx: Context<UpdateReceipt>,
+        listing_sig: Pubkey,
+        payment_sig: Pubkey,
+    ) -> Result<()> {
+        ctx.accounts.receipt.listing_sig = listing_sig;
+        ctx.accounts.receipt.payment_sig = payment_sig;
         Ok(())
     }
 
@@ -25,15 +40,17 @@ pub mod royalty_tracker {
     pub fn pay_royalty(
         ctx: Context<PayRoyalty>,
         traded_price: u64,
-        royalty_percent_paid: u16,
-        listing_sig: Pubkey,
-        payment_sig: Pubkey,
+        royalty_paid: u64,
     ) -> Result<()> {
         let bps = ctx.accounts.nft_metadata.data.seller_fee_basis_points;
 
-        msg!("seller bps: {}", bps);
+        let total_royalty = traded_price
+            .checked_mul(bps as u64)
+            .unwrap()
+            .checked_div(10000)
+            .unwrap();
 
-        let bps_left_to_pay = bps - royalty_percent_paid;
+        let royalty_to_pay = total_royalty - royalty_paid;
 
         let mut creators = vec![
             &mut ctx.accounts.creator_1,
@@ -43,38 +60,55 @@ pub mod royalty_tracker {
             &mut ctx.accounts.creator_5,
         ];
 
-        msg!("creator vector? {:?}", &creators);
+        // msg!("seller bps: {}", &bps);
+        // msg!("creator vector? {:?}", &creators);
 
-        // TODO get right indexes and stuff for creator vector, types for the bps calculations
+        let mut i = 0;
 
-        for i in 1..creators.len() {
-            let share = ctx.accounts.nft_metadata.data.creators[i].share;
+        for creator in ctx
+            .accounts
+            .nft_metadata
+            .data
+            .creators
+            .as_ref()
+            .expect("no creators")
+        {
+            let share = creator.share;
 
-            let cpi_accounts = Transfer {
-                from: ctx.accounts.signer.to_account_info(),
-                to: creators[i].to_account_info(),
-                authority: ctx.accounts.signer.to_account_info(),
-            };
-            let cpi_program = ctx.accounts.token_program.to_account_info();
-            let cpi_context = CpiContext::new(cpi_program, cpi_accounts);
-            token::transfer(
-                cpi_context,
-                traded_price * bps_left_to_pay * share / (100 * 100),
+            assert_eq!(creator.address, creators[i].to_account_info().key());
+            i += 1;
+
+            let share_to_pay = royalty_to_pay
+                .checked_mul(share as u64)
+                .unwrap()
+                .checked_div(100)
+                .unwrap();
+
+            invoke(
+                &system_instruction::transfer(
+                    ctx.accounts.signer.to_account_info().key,
+                    creators[i].to_account_info().key,
+                    share_to_pay,
+                ),
+                &[
+                    ctx.accounts.signer.to_account_info(),
+                    creators[i].to_account_info(),
+                    ctx.accounts.system_program.to_account_info(),
+                ],
             )?;
         }
 
-        ctx.accounts.receipt.listing_sig = listing_sig;
-        ctx.accounts.receipt.payment_sig = payment_sig;
         Ok(())
     }
 }
 
+// TODO Check if seeds are okay because previous receipt will be overwritten
 #[derive(Accounts)]
 pub struct CreateReceipt<'info> {
     #[account(init,
               payer = signer,
               space = std::mem::size_of::<Receipt>(),
-              seeds = [b"receipt", nft_mint.key().as_ref()], bump,
+              seeds = [b"receipt", signer.key().as_ref(), nft_mint.key().as_ref()], bump,
 )]
     pub receipt: Account<'info, Receipt>,
 
@@ -87,11 +121,25 @@ pub struct CreateReceipt<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(traded_price: u64, royalty_percent_paid: u16, listing_sig: Pubkey, payment_sig: Pubkey
+#[instruction(listing_sig: Pubkey, payment_sig: Pubkey)]
+pub struct UpdateReceipt<'info> {
+    #[account(mut,
+              seeds = [b"receipt", signer.key().as_ref(), nft_mint.key().as_ref()], bump,
 )]
+    pub receipt: Account<'info, Receipt>,
+
+    #[account(mut)]
+    pub nft_mint: Box<Account<'info, Mint>>,
+
+    #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(traded_price: u64, royalty_percent_paid: u64)]
 pub struct PayRoyalty<'info> {
     #[account(mut,
-              seeds = [b"seeds", nft_mint.key().as_ref()], bump,
+              seeds = [b"receipt", signer.key().as_ref(), nft_mint.key().as_ref()], bump,
     )]
     pub receipt: Account<'info, Receipt>,
 
@@ -115,12 +163,13 @@ pub struct PayRoyalty<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
 
-    token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }
 
 #[account]
 #[derive(Default)]
 pub struct Receipt {
     pub listing_sig: Pubkey,
-    pub payment_sig: Pubkey,
+    pub payment_sig: Pubkey, //nft tx where the royalties were not paid
+    pub amount_paid: u64,
 }
