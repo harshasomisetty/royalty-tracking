@@ -138,14 +138,21 @@ describe("royalty-tracker", () => {
         receipt,
         nftMint,
         nftMetadata,
-        // creator1: otherCreators[0].publicKey,
-        // creator2: otherCreators[0].publicKey,
-        // creator3: otherCreators[0].publicKey,
-        // creator4: otherCreators[0].publicKey,
-        // creator5: otherCreators[0].publicKey,
         signer: user.publicKey,
         systemProgram: SystemProgram.programId,
       })
+      .remainingAccounts([
+        {
+          pubkey: otherCreators[0].publicKey,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: creator.publicKey,
+          isSigner: false,
+          isWritable: true,
+        },
+      ])
       .transaction();
 
     transaction.add(pay_royalty_tx);

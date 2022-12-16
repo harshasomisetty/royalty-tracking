@@ -1,4 +1,5 @@
 use crate::state::metaplex_anchor::TokenMetadata;
+use crate::ErrorCode;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
@@ -26,14 +27,16 @@ pub mod royalty_tracker {
     }
 
     /* Writes the latest royalty payment details to the receipt */
-    pub fn pay_royalty(
-        ctx: Context<PayRoyalty>,
+    pub fn pay_royalty<'info>(
+        ctx: Context<'_, '_, '_, 'info, PayRoyalty<'info>>,
         traded_price: u64,
         royalty_paid: u64,
         listing_sig: Pubkey, // Actually a signature
         payment_sig: Pubkey, // Actually a signature
     ) -> Result<()> {
-        let bps = ctx.accounts.nft_metadata.data.seller_fee_basis_points;
+        let metadata = &ctx.accounts.nft_metadata;
+
+        let bps = metadata.data.seller_fee_basis_points;
 
         let total_royalty = traded_price
             .checked_mul(bps as u64)
@@ -42,53 +45,50 @@ pub mod royalty_tracker {
             .unwrap();
 
         let royalty_to_pay = total_royalty - royalty_paid;
-
-        // let mut creators = vec![
-        // &mut ctx.accounts.creator_1,
-        // &mut ctx.accounts.creator_2,
-        // &mut ctx.accounts.creator_3,
-        // &mut ctx.accounts.creator_4,
-        // &mut ctx.accounts.creator_5,
-        // ];
+        let mut remaining_royalty = royalty_to_pay;
 
         msg!("royalty info: {}, {}", &total_royalty, &royalty_to_pay);
+        let remaining_accounts = &mut ctx.remaining_accounts.iter();
 
-        // msg!("creator vector? {:?}", &creators);
+        msg!("remaining accs: {:?}", remaining_accounts);
 
-        let mut i = 0;
+        match &metadata.data.creators {
+            Some(creators) => {
+                msg!("creators: {:?}", creators);
+                for creator in creators {
+                    let pct = creator.share as u128;
+                    let creator_fee = pct
+                        .checked_mul(royalty_to_pay as u128)
+                        .unwrap()
+                        .checked_div(100)
+                        .unwrap() as u64;
+                    // .ok_or(ErrorCode::NumericalOverflow)?
+                    // TOOD add in proper error checking instead of unwraps
+                    remaining_royalty = remaining_royalty.checked_sub(creator_fee).unwrap();
 
-        // for creator in ctx
-        //     .accounts
-        //     .nft_metadata
-        //     .data
-        //     .creators
-        //     .as_ref()
-        //     .expect("no creators")
-        // {
-        //     let share = creator.share;
-
-        //     assert_eq!(creator.address, creators[i].to_account_info().key());
-        //     i += 1;
-
-        //     let share_to_pay = royalty_to_pay
-        //         .checked_mul(share as u64)
-        //         .unwrap()
-        //         .checked_div(100)
-        //         .unwrap();
-
-        //     invoke(
-        //         &system_instruction::transfer(
-        //             ctx.accounts.signer.to_account_info().key,
-        //             creators[i].to_account_info().key,
-        //             share_to_pay,
-        //         ),
-        //         &[
-        //             ctx.accounts.signer.to_account_info(),
-        //             creators[i].to_account_info(),
-        //             ctx.accounts.system_program.to_account_info(),
-        //         ],
-        //     )?;
-        // }
+                    let current_creator_info = next_account_info(remaining_accounts)?;
+                    assert_eq!(creator.address, *current_creator_info.key);
+                    msg!("creator fee: {}", creator_fee);
+                    if creator_fee > 0 {
+                        invoke(
+                            &system_instruction::transfer(
+                                ctx.accounts.signer.to_account_info().key,
+                                current_creator_info.key,
+                                creator_fee,
+                            ),
+                            &[
+                                ctx.accounts.signer.to_account_info(),
+                                current_creator_info.to_account_info(),
+                                ctx.accounts.system_program.to_account_info(),
+                            ],
+                        )?;
+                    }
+                }
+            }
+            None => {
+                msg!("No creators found in metadata");
+            }
+        }
 
         ctx.accounts.receipt.listing_sig = listing_sig;
         ctx.accounts.receipt.payment_sig = payment_sig;
@@ -125,16 +125,7 @@ pub struct PayRoyalty<'info> {
     pub nft_mint: Box<Account<'info, Mint>>,
     #[account(mut)]
     pub nft_metadata: Box<Account<'info, TokenMetadata>>,
-    // #[account(mut)]
-    // pub creator_1: Box<Account<'info, TokenAccount>>,
-    // #[account(mut)]
-    // pub creator_2: Box<Account<'info, TokenAccount>>,
-    // #[account(mut)]
-    // pub creator_3: Box<Account<'info, TokenAccount>>,
-    // #[account(mut)]
-    // pub creator_4: Box<Account<'info, TokenAccount>>,
-    // #[account(mut)]
-    // pub creator_5: Box<Account<'info, TokenAccount>>,
+
     #[account(mut)]
     pub signer: Signer<'info>,
     pub system_program: Program<'info, System>,
