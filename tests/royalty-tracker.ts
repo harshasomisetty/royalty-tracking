@@ -24,6 +24,8 @@ import { mintNFTs } from "../utils/createNft";
 import { APE_URIS, otherCreators, creator, users } from "../utils/constants";
 import { keypairIdentity, Metaplex, Nft } from "@metaplex-foundation/js";
 
+const assert = require("assert");
+
 describe("royalty-tracker", () => {
   // Configure the client to use the local cluster.
   const provider = anchor.AnchorProvider.env();
@@ -126,11 +128,9 @@ describe("royalty-tracker", () => {
     let paymentSig = nftMint;
 
 
-    console.log("receipt", receipt.toBase58())
-    console.log("nftMint", nftMint.toBase58())
-    console.log("nftMetadata", nftMetadata.toBase58())
-    console.log("signer", user.publicKey.toBase58())
-
+    let otherCreatorSol = await connection.getBalance(otherCreators[0].publicKey);
+    let creatorSol = await connection.getBalance(creator.publicKey);
+    let userSol = await connection.getBalance(user.publicKey);
 
     const pay_royalty_tx = await RoyaltyTracker.methods
       .payRoyalty(tradedPrice, royaltyPaid, listingSig, paymentSig)
@@ -167,10 +167,25 @@ describe("royalty-tracker", () => {
       throw new Error("failed tx");
     }
 
+    let otherCreatorSol1 = await connection.getBalance(otherCreators[0].publicKey);
+    let creatorSol1 = await connection.getBalance(creator.publicKey);
+    let userSol1 = await connection.getBalance(user.publicKey);
+
+
+    assert.ok(userSol1 < userSol);
+    assert.ok(otherCreatorSol1 > otherCreatorSol)
+    assert.ok(creatorSol1 - creatorSol);
+
     let fetchedReceipt = await RoyaltyTracker.account.receipt.fetch(receipt);
+
+    assert.ok(fetchedReceipt.royaltyPaid.eq(royaltyPaid));
+    assert.ok(fetchedReceipt.tradedPrice.eq(tradedPrice));
+    assert.ok(fetchedReceipt.listingSig.equals(listingSig));
+    assert.ok(fetchedReceipt.paymentSig.equals(paymentSig));
 
     console.log("fetched receipt", fetchedReceipt);
   });
+
   RoyaltyTracker.provider.connection.onLogs("all", ({ logs }) => {
     console.log(logs);
   });
