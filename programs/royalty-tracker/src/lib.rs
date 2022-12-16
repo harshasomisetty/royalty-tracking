@@ -10,7 +10,7 @@ use solana_program::{
 
 pub mod state;
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("BUogHxercuTuXzYbieLjyqC9gRtp4riJqiFuWNViYsuT");
 
 // https://solscan.io/token/3qd8kUJEJvztBeRQaa8dYtMRkPHQUS3qmsdqdKVauPUp#metadata
 
@@ -26,21 +26,12 @@ pub mod royalty_tracker {
     }
 
     /* Writes the latest royalty payment details to the receipt */
-    pub fn update_receipt(
-        ctx: Context<UpdateReceipt>,
-        listing_sig: Pubkey,
-        payment_sig: Pubkey,
-    ) -> Result<()> {
-        ctx.accounts.receipt.listing_sig = listing_sig;
-        ctx.accounts.receipt.payment_sig = payment_sig;
-        Ok(())
-    }
-
-    // TODO change the pubkey type to signature
     pub fn pay_royalty(
         ctx: Context<PayRoyalty>,
         traded_price: u64,
         royalty_paid: u64,
+        listing_sig: Pubkey, // Actually a signature
+        payment_sig: Pubkey, // Actually a signature
     ) -> Result<()> {
         let bps = ctx.accounts.nft_metadata.data.seller_fee_basis_points;
 
@@ -52,51 +43,57 @@ pub mod royalty_tracker {
 
         let royalty_to_pay = total_royalty - royalty_paid;
 
-        let mut creators = vec![
-            &mut ctx.accounts.creator_1,
-            &mut ctx.accounts.creator_2,
-            &mut ctx.accounts.creator_3,
-            &mut ctx.accounts.creator_4,
-            &mut ctx.accounts.creator_5,
-        ];
+        // let mut creators = vec![
+        // &mut ctx.accounts.creator_1,
+        // &mut ctx.accounts.creator_2,
+        // &mut ctx.accounts.creator_3,
+        // &mut ctx.accounts.creator_4,
+        // &mut ctx.accounts.creator_5,
+        // ];
 
-        // msg!("seller bps: {}", &bps);
+        msg!("royalty info: {}, {}", &total_royalty, &royalty_to_pay);
+
         // msg!("creator vector? {:?}", &creators);
 
         let mut i = 0;
 
-        for creator in ctx
-            .accounts
-            .nft_metadata
-            .data
-            .creators
-            .as_ref()
-            .expect("no creators")
-        {
-            let share = creator.share;
+        // for creator in ctx
+        //     .accounts
+        //     .nft_metadata
+        //     .data
+        //     .creators
+        //     .as_ref()
+        //     .expect("no creators")
+        // {
+        //     let share = creator.share;
 
-            assert_eq!(creator.address, creators[i].to_account_info().key());
-            i += 1;
+        //     assert_eq!(creator.address, creators[i].to_account_info().key());
+        //     i += 1;
 
-            let share_to_pay = royalty_to_pay
-                .checked_mul(share as u64)
-                .unwrap()
-                .checked_div(100)
-                .unwrap();
+        //     let share_to_pay = royalty_to_pay
+        //         .checked_mul(share as u64)
+        //         .unwrap()
+        //         .checked_div(100)
+        //         .unwrap();
 
-            invoke(
-                &system_instruction::transfer(
-                    ctx.accounts.signer.to_account_info().key,
-                    creators[i].to_account_info().key,
-                    share_to_pay,
-                ),
-                &[
-                    ctx.accounts.signer.to_account_info(),
-                    creators[i].to_account_info(),
-                    ctx.accounts.system_program.to_account_info(),
-                ],
-            )?;
-        }
+        //     invoke(
+        //         &system_instruction::transfer(
+        //             ctx.accounts.signer.to_account_info().key,
+        //             creators[i].to_account_info().key,
+        //             share_to_pay,
+        //         ),
+        //         &[
+        //             ctx.accounts.signer.to_account_info(),
+        //             creators[i].to_account_info(),
+        //             ctx.accounts.system_program.to_account_info(),
+        //         ],
+        //     )?;
+        // }
+
+        ctx.accounts.receipt.listing_sig = listing_sig;
+        ctx.accounts.receipt.payment_sig = payment_sig;
+        ctx.accounts.receipt.traded_price = traded_price;
+        ctx.accounts.receipt.royalty_paid = royalty_paid;
 
         Ok(())
     }
@@ -106,12 +103,11 @@ pub mod royalty_tracker {
 #[derive(Accounts)]
 pub struct CreateReceipt<'info> {
     #[account(init,
-              payer = signer,
-              space = std::mem::size_of::<Receipt>(),
-              seeds = [b"receipt", signer.key().as_ref(), nft_mint.key().as_ref()], bump,
-)]
+                  payer = signer,
+                  space = std::mem::size_of::<Receipt>()+10,
+                  seeds = [b"receipt", signer.key().as_ref(), nft_mint.key().as_ref()], bump,
+    )]
     pub receipt: Account<'info, Receipt>,
-
     #[account(mut)]
     pub nft_mint: Box<Account<'info, Mint>>,
 
@@ -121,48 +117,26 @@ pub struct CreateReceipt<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(listing_sig: Pubkey, payment_sig: Pubkey)]
-pub struct UpdateReceipt<'info> {
-    #[account(mut,
-              seeds = [b"receipt", signer.key().as_ref(), nft_mint.key().as_ref()], bump,
-)]
-    pub receipt: Account<'info, Receipt>,
-
-    #[account(mut)]
-    pub nft_mint: Box<Account<'info, Mint>>,
-
-    #[account(mut)]
-    pub signer: Signer<'info>,
-}
-
-#[derive(Accounts)]
-#[instruction(traded_price: u64, royalty_percent_paid: u64)]
+#[instruction(traded_price: u64, royalty_paid: u64, listing_sig: Pubkey, payment_sig: Pubkey)]
 pub struct PayRoyalty<'info> {
-    #[account(mut,
-              seeds = [b"receipt", signer.key().as_ref(), nft_mint.key().as_ref()], bump,
-    )]
+    #[account(mut)]
     pub receipt: Account<'info, Receipt>,
-
     #[account(mut)]
     pub nft_mint: Box<Account<'info, Mint>>,
-
     #[account(mut)]
     pub nft_metadata: Box<Account<'info, TokenMetadata>>,
-
-    #[account(mut)]
-    pub creator_1: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub creator_2: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub creator_3: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub creator_4: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub creator_5: Box<Account<'info, TokenAccount>>,
-
+    // #[account(mut)]
+    // pub creator_1: Box<Account<'info, TokenAccount>>,
+    // #[account(mut)]
+    // pub creator_2: Box<Account<'info, TokenAccount>>,
+    // #[account(mut)]
+    // pub creator_3: Box<Account<'info, TokenAccount>>,
+    // #[account(mut)]
+    // pub creator_4: Box<Account<'info, TokenAccount>>,
+    // #[account(mut)]
+    // pub creator_5: Box<Account<'info, TokenAccount>>,
     #[account(mut)]
     pub signer: Signer<'info>,
-
     pub system_program: Program<'info, System>,
 }
 
@@ -171,5 +145,6 @@ pub struct PayRoyalty<'info> {
 pub struct Receipt {
     pub listing_sig: Pubkey,
     pub payment_sig: Pubkey, //nft tx where the royalties were not paid
-    pub amount_paid: u64,
+    pub royalty_paid: u64,
+    pub traded_price: u64,
 }

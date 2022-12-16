@@ -21,7 +21,7 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { mintNFTs } from "../utils/createNft";
-import { APE_URIS, otherCreators, users } from "../utils/constants";
+import { APE_URIS, otherCreators, creator, users } from "../utils/constants";
 import { keypairIdentity, Metaplex, Nft } from "@metaplex-foundation/js";
 
 describe("royalty-tracker", () => {
@@ -29,44 +29,26 @@ describe("royalty-tracker", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const connection = provider.connection;
-  let user = Keypair.generate();
-  let creator = Keypair.generate();
+  let user = users[0];
 
   const metaplex = Metaplex.make(connection).use(keypairIdentity(creator));
   const RoyaltyTracker = anchor.workspace
     .RoyaltyTracker as Program<RoyaltyTracker>;
 
-  let transaction = new Transaction();
 
-  let nftMint = new PublicKey("3qd8kUJEJvztBeRQaa8dYtMRkPHQUS3qmsdqdKVauPUp");
+  let nftMint, nftMetadata, receipt;
+  let nftList: Nft[];
 
   const METADATA_PROGRAM_PUBKEY = new PublicKey(
     "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
   );
 
-  const [nftMetadata] = PublicKey.findProgramAddressSync(
-    [
-      Buffer.from("metadata"),
-      METADATA_PROGRAM_PUBKEY.toBuffer(),
-      nftMint.toBuffer(),
-    ],
-    METADATA_PROGRAM_PUBKEY
-  );
-
-  let [receipt] = PublicKey.findProgramAddressSync(
-    [Buffer.from("receipt"), nftMint.toBuffer()],
-    RoyaltyTracker.programId
-  );
-
-  console.log("receipt add", receipt.toString());
-
   let airdropVal = 20 * LAMPORTS_PER_SOL;
 
-  let nftList: Nft[];
   before(async () => {
     console.log(new Date(), "requesting airdrop");
 
-    let airdropees = [user, ...users, creator, ...otherCreators];
+    let airdropees = [...users, creator, ...otherCreators];
 
     for (const dropee of airdropees) {
       await connection.confirmTransaction(
@@ -80,13 +62,32 @@ describe("royalty-tracker", () => {
       connection,
       APE_URIS.splice(0, 1),
       otherCreators[0],
-      [users[0].publicKey, users[1].publicKey]
+      [user.publicKey]
     );
 
     console.log("finished airdrops");
+
+    nftMint = nftList[0].address;
+    [nftMetadata] = await PublicKey.findProgramAddress(
+      [
+        Buffer.from("metadata"),
+        METADATA_PROGRAM_PUBKEY.toBuffer(),
+        nftMint.toBuffer(),
+      ],
+      METADATA_PROGRAM_PUBKEY
+    );
+
+    [receipt] = await PublicKey.findProgramAddress(
+      [Buffer.from("receipt"), user.publicKey.toBuffer(), nftMint.toBuffer()],
+      RoyaltyTracker.programId
+    );
+
   });
 
   it("Created Receipt", async () => {
+
+    let transaction = new Transaction();
+    console.log("In create receipt")
     // Add your test here.
     const create_receipt_tx = await RoyaltyTracker.methods
       .createReceipt()
@@ -98,32 +99,52 @@ describe("royalty-tracker", () => {
       })
       .transaction();
 
-    // transaction.add(create_receipt_tx);
+    transaction.add(create_receipt_tx);
 
-    // try {
-    //   connection.confirmTransaction(
-    //     await sendAndConfirmTransaction(connection, transaction, [user]),
-    //     "confirmed"
-    //   );
-    // } catch (error) {
-    //   console.log("", error);
-    //   throw new Error("failed tx");
-    // }
+    try {
+      connection.confirmTransaction(
+        await sendAndConfirmTransaction(connection, transaction, [user]),
+        "confirmed"
+      );
+    } catch (error) {
+      console.log("", error);
+      throw new Error("failed tx");
+    }
+
   });
 
-  it.skip("Paid Royalty", async () => {
-    let pricePaid = new BN(100);
-    let royaltyPercent = 5;
-    // let listingSig = nftMint.
+  it("Paid Royalty", async () => {
 
-    // TODO just send in repeats.
-    // then, in rust code i can get a set of all passed in accounts, then check to make sure its the same address as in metadata
+
+    console.log("In pay royalty")
+
+    let transaction = new Transaction();
+
+    let tradedPrice = new BN(100);
+    let royaltyPaid = new BN(1);
+    let listingSig = nftMint;
+    let paymentSig = nftMint;
+
+
+    console.log("receipt", receipt.toBase58())
+    console.log("nftMint", nftMint.toBase58())
+    console.log("nftMetadata", nftMetadata.toBase58())
+    console.log("signer", user.publicKey.toBase58())
+
+
     const pay_royalty_tx = await RoyaltyTracker.methods
-      .payRoyalty(pricePaid, royaltyPercent)
+      .payRoyalty(tradedPrice, royaltyPaid, listingSig, paymentSig)
       .accounts({
         receipt,
         nftMint,
         nftMetadata,
+        // creator1: otherCreators[0].publicKey,
+        // creator2: otherCreators[0].publicKey,
+        // creator3: otherCreators[0].publicKey,
+        // creator4: otherCreators[0].publicKey,
+        // creator5: otherCreators[0].publicKey,
+        signer: user.publicKey,
+        systemProgram: SystemProgram.programId,
       })
       .transaction();
 
@@ -142,8 +163,8 @@ describe("royalty-tracker", () => {
     let fetchedReceipt = await RoyaltyTracker.account.receipt.fetch(receipt);
 
     console.log("fetched receipt", fetchedReceipt);
-    RoyaltyTracker.provider.connection.onLogs("all", ({ logs }) => {
-      console.log(logs);
-    });
+  });
+  RoyaltyTracker.provider.connection.onLogs("all", ({ logs }) => {
+    console.log(logs);
   });
 });
