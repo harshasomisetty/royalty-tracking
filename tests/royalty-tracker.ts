@@ -1,28 +1,12 @@
+import { keypairIdentity, Metaplex, Nft } from "@metaplex-foundation/js";
 import * as anchor from "@project-serum/anchor";
 import { BN, Program } from "@project-serum/anchor";
-import { RoyaltyTracker } from "../target/types/royalty_tracker";
 import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  createMint,
-  getAccount,
-  getAssociatedTokenAddress,
-  getMint,
-  getOrCreateAssociatedTokenAccount,
-  mintTo,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
-import {
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  SYSVAR_RENT_PUBKEY,
-  LAMPORTS_PER_SOL,
-  Transaction,
-  sendAndConfirmTransaction,
+  LAMPORTS_PER_SOL, PublicKey, sendAndConfirmTransaction, SystemProgram, Transaction
 } from "@solana/web3.js";
+import { RoyaltyTracker } from "../target/types/royalty_tracker";
+import { APE_URIS, creator, otherCreators, users } from "../utils/constants";
 import { mintNFTs } from "../utils/createNft";
-import { APE_URIS, otherCreators, creator, users } from "../utils/constants";
-import { keypairIdentity, Metaplex, Nft } from "@metaplex-foundation/js";
 
 const assert = require("assert");
 
@@ -116,7 +100,6 @@ describe("royalty-tracker", () => {
   });
 
   it("Paid Royalty", async () => {
-
 
     console.log("In pay royalty")
 

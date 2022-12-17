@@ -47,14 +47,10 @@ pub mod royalty_tracker {
         let royalty_to_pay = total_royalty - royalty_paid;
         let mut remaining_royalty = royalty_to_pay;
 
-        msg!("royalty info: {}, {}", &total_royalty, &royalty_to_pay);
         let remaining_accounts = &mut ctx.remaining_accounts.iter();
-
-        msg!("remaining accs: {:?}", remaining_accounts);
 
         match &metadata.data.creators {
             Some(creators) => {
-                msg!("creators: {:?}", creators);
                 for creator in creators {
                     let pct = creator.share as u128;
                     let creator_fee = pct
@@ -68,7 +64,7 @@ pub mod royalty_tracker {
 
                     let current_creator_info = next_account_info(remaining_accounts)?;
                     assert_eq!(creator.address, *current_creator_info.key);
-                    msg!("creator fee: {}", creator_fee);
+
                     if creator_fee > 0 {
                         invoke(
                             &system_instruction::transfer(
